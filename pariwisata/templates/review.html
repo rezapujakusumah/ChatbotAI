@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Review Wisata</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link href="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/css/select2.min.css" rel="stylesheet" />
+    <style>
+        .review-container {
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            width: 95%;
+        }
+        .review-card {
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        .sentiment-positive {
+            color: green;
+        }
+        .sentiment-negative {
+            color: red;
+        }
+        .sentiment-neutral {
+            color: gray;
+        }
+        .form-select {
+            padding: 10px;
+            border-radius: 8px;
+            border: 1px solid #ddd;
+            width: 100%;
+            margin-bottom: 10px;
+            font-size: 1em;
+        }
+
+        .form-select:focus {
+            border-color: #2196F3;
+            box-shadow: 0 0 0 0.2rem rgba(33, 150, 243, 0.25);
+            outline: none;
+        }
+
+        #customLocation {
+            transition: all 0.3s ease;
+        }
+
+        .select2-container {
+            width: 100% !important;
+        }
+        
+        .select2-container--default .select2-selection--single {
+            height: 40px;
+            padding: 5px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        
+        .select2-container--default .select2-selection--single .select2-selection__arrow {
+            height: 38px;
+        }
+        
+        .select2-dropdown {
+            border: 1px solid #ddd;
+            border-radius: 8px;
+        }
+        
+        .select2-search__field {
+            padding: 8px !important;
+            border-radius: 4px !important;
+        }
+
+        /* Add media queries for mobile responsiveness */
+        @media (max-width: 768px) {
+            .review-container {
+                padding: 15px;
+            }
+
+            .review-card {
+                padding: 12px;
+                margin-bottom: 15px;
+            }
+
+            .form-select, 
+            .select2-container--default .select2-selection--single {
+                height: 38px;
+                font-size: 0.9em;
+            }
+
+            textarea.form-control {
+                font-size: 0.9em;
+            }
+
+            .btn {
+                width: 100%; /* Full width buttons on mobile */
+                margin-bottom: 10px;
+            }
+
+            h2 {
+                font-size: 1.5em;
+            }
+
+            h3 {
+                font-size: 1.3em;
+            }
+        }
+
+        @media (max-width: 480px) {
+            .review-container {
+                padding: 10px;
+                width: 98%;
+            }
+
+            .review-card {
+                padding: 10px;
+                font-size: 0.9em;
+            }
+
+            .select2-container--default .select2-selection--single {
+                font-size: 0.85em;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="review-container">
+        <h2 class="mb-4">Review Wisata</h2>
+        
+        <!-- Form Review -->
+        <div class="card mb-4">
+            <div class="card-body">
+                <form id="reviewForm">
+                    <div class="mb-3">
+                        <label for="location" class="form-label">Lokasi Wisata</label>
+                        <select class="form-select" id="location" required>
+                            <option value="">Pilih atau ketik lokasi wisata</option>
+                            {% for wisata in wisata_list %}
+                                <option value="{{ wisata.nama }}">{{ wisata.nama }} ({{ wisata.kategori }})</option>
+                            {% endfor %}
+                            <option value="lainnya">Lokasi Lainnya...</option>
+                        </select>
+                        <input type="text" class="form-control mt-2" id="customLocation" 
+                               style="display: none;" placeholder="Masukkan nama lokasi wisata lainnya">
+                    </div>
+                    <div class="mb-3">
+                        <label for="rating" class="form-label">Rating</label>
+                        <select class="form-control" id="rating" required>
+                            <option value="5">⭐⭐⭐⭐⭐ (5)</option>
+                            <option value="4">⭐⭐⭐⭐ (4)</option>
+                            <option value="3">⭐⭐⭐ (3)</option>
+                            <option value="2">⭐⭐ (2)</option>
+                            <option value="1">⭐ (1)</option>
+                        </select>
+                    </div>
+                    <div class="mb-3">
+                        <label for="review" class="form-label">Review Anda</label>
+                        <textarea class="form-control" id="review" rows="4" required></textarea>
+                    </div>
+                    <button type="submit" class="btn btn-primary">Kirim Review</button>
+                </form>
+            </div>
+        </div>
+
+        <!-- Daftar Review -->
+        <h3>Review Terbaru</h3>
+        <div id="reviewsList"></div>
+    </div>
+
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/select2@4.1.0-rc.0/dist/js/select2.min.js"></script>
+    
+    <script>
+        // Inisialisasi Select2
+        $(document).ready(function() {
+            $('#location').select2({
+                placeholder: 'Pilih atau ketik lokasi wisata',
+                allowClear: true,
+                tags: true, // Memungkinkan input custom
+                language: {
+                    noResults: function() {
+                        return "Lokasi tidak ditemukan";
+                    }
+                }
+            });
+
+            // Handler untuk custom location
+            $('#location').on('change', function() {
+                const customLocationInput = document.getElementById('customLocation');
+                if (this.value === 'lainnya') {
+                    customLocationInput.style.display = 'block';
+                    customLocationInput.required = true;
+                } else {
+                    customLocationInput.style.display = 'none';
+                    customLocationInput.required = false;
+                    customLocationInput.value = '';
+                }
+            });
+        });
+
+        // Update event listener form submit
+        document.getElementById('reviewForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const locationSelect = $('#location').select2('data')[0];
+            const customLocation = document.getElementById('customLocation');
+            
+            const reviewData = {
+                location: locationSelect.id === 'lainnya' ? customLocation.value : locationSelect.text.split(' (')[0],
+                rating: document.getElementById('rating').value,
+                review: document.getElementById('review').value
+            };
+
+            try {
+                const response = await fetch('/submit-review', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(reviewData)
+                });
+                
+                const result = await response.json();
+                if (result.status === 'success') {
+                    alert('Review berhasil dikirim!\nSentimen: ' + result.sentiment + 
+                          '\nSkor Sentimen: ' + result.sentiment_score);
+                    document.getElementById('reviewForm').reset();
+                    $('#location').val(null).trigger('change');
+                    document.getElementById('customLocation').style.display = 'none';
+                    loadReviews();
+                }
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Terjadi kesalahan saat mengirim review');
+            }
+        });
+
+        async function loadReviews() {
+            try {
+                const response = await fetch('/get-reviews');
+                const reviews = await response.json();
+                
+                const reviewsList = document.getElementById('reviewsList');
+                reviewsList.innerHTML = reviews.map(review => `
+                    <div class="review-card">
+                        <h5>${review.location}</h5>
+                        <div>Rating: ${'⭐'.repeat(review.rating)}</div>
+                        <p>${review.text}</p>
+                        <div class="sentiment-${review.sentiment}">
+                            Sentimen: ${review.sentiment} (${review.sentiment_score})
+                        </div>
+                        <small class="text-muted">Tanggal: ${review.date}</small>
+                    </div>
+                `).join('');
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+
+        // Load reviews when page loads
+        loadReviews();
+    </script>
+</body>
+</html>
