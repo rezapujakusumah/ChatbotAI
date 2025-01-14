@@ -1,21 +1,24 @@
 from flask import Flask, render_template, request, jsonify
 import time
-import torch
 import os
 import google.generativeai as genai
+import googlemaps
 from textblob import TextBlob
 from datetime import datetime
 from googletrans import Translator
 import csv
 from pathlib import Path
-from transformers import AutoTokenizer, AutoModelForSequenceClassification
-from transformers import pipeline
+from rouge_score import rouge_scorer
+import pandas as pd
+from rouge import load_reference_responses, evaluate_response, save_evaluation_results, evaluate_chatbot_responses
 
 app = Flask(__name__)
 
 # Configure Gemini
 genai.configure(api_key="AIzaSyB6B3gXF3nTY52DywaaGFyS-FzuBej_96Y")
 
+GOOGLE_MAPS_API_KEY = "AIzaSyClY8LDWvFDQrEgxCZjY2F03CPl3pMuTdI"
+gmaps = googlemaps.Client(key=GOOGLE_MAPS_API_KEY)
 
 # Tambahkan translator
 translator = Translator()
@@ -56,7 +59,7 @@ def initialize_csv():
     if not Path(CSV_FILE_PATH).exists():
         with open(CSV_FILE_PATH, 'w', newline='', encoding='utf-8') as file:
             writer = csv.writer(file)
-            writer.writerow(['Tanggal', 'Lokasi', 'Rating', 'Review', 'Sentimen', 'Score'])
+            writer.writerow(['Tanggal', 'Lokasi', 'Rating', 'Review', 'Sentimen', 'Skor Sentimen'])
 
 # Fungsi untuk menyimpan review ke CSV
 def save_review_to_csv(review_data):
@@ -68,7 +71,7 @@ def save_review_to_csv(review_data):
             review_data['rating'],
             review_data['text'],
             review_data['sentiment'],
-            review_data['score']
+            review_data['sentiment_score']
         ])
 
 # Fungsi untuk membaca semua review dari CSV
@@ -78,17 +81,14 @@ def read_reviews_from_csv():
         with open(CSV_FILE_PATH, 'r', encoding='utf-8') as file:
             reader = csv.DictReader(file)
             for row in reader:
-                try:
-                    reviews.append({
-                        'date': row['Tanggal'],
-                        'location': row['Lokasi'],
-                        'rating': row['Rating'],
-                        'text': row['Review'],
-                        'sentiment': row['Sentimen'],
-                        'score': float(row['Score']) if 'Score' in row else None
-                    })
-                except KeyError as e:
-                    print(f"Missing key in row: {e}")
+                reviews.append({
+                    'date': row['Tanggal'],
+                    'location': row['Lokasi'],
+                    'rating': row['Rating'],
+                    'text': row['Review'],
+                    'sentiment': row['Sentimen'],
+                    'sentiment_score': float(row['Skor Sentimen'])
+                })
     return reviews
 
 # Initialize files and chat session globally
@@ -236,7 +236,21 @@ def chat():
     formatted_response = "<br>".join(formatted_lines)
     formatted_response = formatted_response.replace("**", "")
     
-    return jsonify({'response': formatted_response})
+    # Evaluasi response
+    reference_responses = load_reference_responses()
+    chat_history = [
+        {'sender': 'user', 'message': request.json['message']},
+        {'sender': 'bot', 'message': formatted_response}
+    ]
+    
+    # Evaluate dan save ke CSV
+    results = evaluate_chatbot_responses(chat_history, reference_responses)
+    save_evaluation_results(results)
+    
+    return jsonify({
+        'response': formatted_response,
+        'evaluation_results': results[0] if results else None
+    })
 
 @app.route('/review', methods=['GET'])
 def review_page():
@@ -250,26 +264,29 @@ def submit_review():
     rating = data['rating']
     
     try:
+        # Terjemahkan teks review ke bahasa Inggris
+        translated = translator.translate(review_text, src='id', dest='en')
+        english_text = translated.text
         
-        # Load the ABSA model and tokenizer
-        model_name = "w11wo/indonesian-roberta-base-sentiment-classifier"
-        tokenizer = AutoTokenizer.from_pretrained(model_name, from_slow=True)
-        model = AutoModelForSequenceClassification.from_pretrained(model_name)
-
-        classifier = pipeline("text-classification", model=model, tokenizer=tokenizer)
+        # Analisis sentimen menggunakan teks bahasa Inggris
+        analysis = TextBlob(english_text)
+        sentiment_score = analysis.sentiment.polarity
         
-        # Klasifikasi sentimen dengan model ABSA
-        absa_result = classifier(review_text)
-        absa_sentiment = absa_result[0]['label']
-        absa_score = absa_result[0]['score']
-     
+        # Sesuaikan threshold untuk kategorisasi sentimen
+        if sentiment_score > 0.1:
+            sentiment = "positif"
+        elif sentiment_score < -0.1:
+            sentiment = "negatif"
+        else:
+            sentiment = "netral"
+        
         # Buat data review
         review_data = {
             'text': review_text,
             'location': location,
             'rating': rating,
-            'sentiment': absa_sentiment,
-            'score': absa_score,
+            'sentiment': sentiment,
+            'sentiment_score': sentiment_score,
             'date': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         }
         
@@ -281,8 +298,8 @@ def submit_review():
         
         return jsonify({
             'status': 'success',
-            'sentiment': absa_sentiment,
-            'score': absa_score
+            'sentiment': sentiment,
+            'sentiment_score': round(sentiment_score, 2)
         })
         
     except Exception as e:
